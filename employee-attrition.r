@@ -75,6 +75,9 @@ str(new_att_emp)
 new_att_emp <- new_att_emp %>%
     mutate(
         riskLevel = if_else(
-            
+            DaysBeforeDeparture < 180,
+            1,
+            0
         )
     )
+
