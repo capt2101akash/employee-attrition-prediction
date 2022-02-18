@@ -137,6 +137,23 @@ table(att_emp_train$riskLevel)
 table(att_emp_test$riskLevel)
 
 # check base model
-model1 <- glm(riskLevel ~ ., new_att_emp, family = binomial())
+base_model <- glm(riskLevel ~ ., att_emp_train, family = "binomial")
 
-summary(model1)
+summary(base_model)
+
+att_emp_train <- att_emp_train[, !names(att_emp_train) %in% c("GenderMale", "Education_LevelMaster", "DaysBeforeDeparture")]
+
+model_1 <- glm(riskLevel ~ ., att_emp_train, family = "binomial")
+
+summary(model_1)
+
+
+y_hat_train_class <- ifelse(model_1$fitted.values < 0.5, 0, 1)
+tab_train_class <- table(
+    y_hat_train_class,
+    att_emp_train$riskLevel,
+    dnn = c("Predicted", "Actual")
+)
+
+tab_train_class
+
