@@ -60,24 +60,83 @@ att_emp$Education_Level <- as.factor(att_emp$Education_Level)
 str(att_emp)
 
 drop_cols <- c(
-    "MMM.YYY",
+    "MMM.YY",
     "Emp_ID",
     "City",
-    "DateofJoining",
+    "Dateofjoining",
     "LastWorkingDate",
     "Joining.Destination"
 )
 
 new_att_emp <- att_emp[, !names(att_emp) %in% drop_cols]
 
-str(new_att_emp)
 
 new_att_emp <- new_att_emp %>%
     mutate(
         riskLevel = if_else(
-            DaysBeforeDeparture < 180,
+            DaysBeforeDeparture < 120,
             1,
             0
         )
     )
 
+gender_dummy <- model.matrix(~Gender - 1, data = new_att_emp)
+education_dummy <- model.matrix(~Education_Level - 1, data = new_att_emp)
+
+new_att_emp <- cbind(new_att_emp, gender_dummy)
+new_att_emp <- cbind(new_att_emp, education_dummy)
+new_att_emp <- new_att_emp[, !names(new_att_emp) %in% c("Gender", "Education_Level")]
+
+new_att_emp$riskLevel = as.integer(new_att_emp$riskLevel)
+str(new_att_emp)
+cor(new_att_emp)[9, ]
+
+head(new_att_emp)
+
+new_att_emp %>%
+ggplot(aes(x = riskLevel)) +
+geom_bar()
+
+new_att_emp %>%
+ggplot(aes(x = DaysBeforeDeparture, y = Total.Business.Value)) +
+geom_point(aes(color = riskLevel)) +
+labs(title = "Relation between Business Value v/s Departure Date")
+
+table(new_att_emp$riskLevel)
+
+new_att_emp %>%
+ggplot(aes(x = DaysBeforeDeparture, y = Total.Business.Value)) +
+geom_point(aes(color = riskLevel)) +
+labs(title = "Relation between Business Value v/s Departure Date")
+
+risk_level0 <- new_att_emp %>%
+    filter(riskLevel == 0)
+
+risk_level0 %>%
+    ggplot(aes(x = Quarterly.Rating)) +
+    geom_bar()
+
+
+risk_level1 <- new_att_emp %>%
+    filter(riskLevel == 1)
+
+risk_level1 %>%
+    ggplot(aes(x = Quarterly.Rating)) +
+    geom_bar()
+
+new_att_emp %>%
+    ggplot(aes(x = Salary)) +
+    geom_histogram()
+
+train_sample <- sample(nrow(new_att_emp), 0.8*nrow(new_att_emp))
+train_sample
+att_emp_train <- new_att_emp[train_sample, ]
+
+att_emp_test <- new_att_emp[-train_sample, ]
+table(att_emp_train$riskLevel)
+table(att_emp_test$riskLevel)
+
+# check base model
+model1 <- glm(riskLevel ~ ., new_att_emp, family = binomial())
+
+summary(model1)
