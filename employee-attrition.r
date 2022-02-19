@@ -1,6 +1,7 @@
 library(ggplot2)
 library(dplyr)
 library(pastecs)
+library(xgboost)
 
 raw_df <- read.csv("dataset/train_data.csv")
 head(raw_df)
@@ -129,7 +130,7 @@ new_att_emp %>%
     geom_histogram()
 
 train_sample <- sample(nrow(new_att_emp), 0.8*nrow(new_att_emp))
-train_sample
+
 att_emp_train <- new_att_emp[train_sample, ]
 
 att_emp_test <- new_att_emp[-train_sample, ]
@@ -157,3 +158,27 @@ tab_train_class <- table(
 
 tab_train_class
 
+train_data_x <- subset(att_emp_train, select = -c(riskLevel))
+train_data_y <- att_emp_train$riskLevel
+train_data_x_matrix <- as.matrix(train_data_x)
+
+# XGboost
+
+model_xg <- xgboost(
+    data = train_data_x_matrix,
+    label = train_data_y,
+    max.depth = 9,
+    eta = 1,
+    nthread = 2,
+    nrounds = 30,
+    objective = "binary:logistic"
+)
+y_hat_xg_train <- predict(model_xg, train_data_x_matrix)
+y_hat_xg_train <- as.numeric(y_hat_xg_train > 0.5)
+y_hat_xg_train
+tab_train_class_xg <- table(
+    y_hat_xg_train,
+    att_emp_train$riskLevel,
+    dnn = c("Predicted", "Actual")
+)
+tab_train_class_xg
