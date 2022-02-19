@@ -182,3 +182,23 @@ tab_train_class_xg <- table(
     dnn = c("Predicted", "Actual")
 )
 tab_train_class_xg
+
+
+att_emp_test <- att_emp_test[,
+                !names(att_emp_test) %in% c(
+                "GenderMale", "Education_LevelMaster", "DaysBeforeDeparture"
+                )
+            ]
+
+test_data_x <- subset(att_emp_test, select = -c(riskLevel))
+test_data_y <- att_emp_test$riskLevel
+test_data_x_matrix <- as.matrix(test_data_x)
+
+y_hat_xg_test <- predict(model_xg, test_data_x_matrix)
+y_hat_xg_test <- as.numeric(y_hat_xg_test > 0.5)
+tab_test_class_xg <- table(
+    y_hat_xg_test,
+    att_emp_test$riskLevel,
+    dnn = c("Predicted", "Actual")
+)
+tab_test_class_xg
