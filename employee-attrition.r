@@ -50,6 +50,8 @@ att_emp <- att_emp %>%
         differenceInSalary = Salary - lag(Salary)
     )
 
+att_emp[, 2:15] %>%
+    filter(Emp_ID == 4)
 
 att_emp$differenceInSalary[is.na(att_emp$differenceInSalary)] <- 0
 
@@ -144,8 +146,16 @@ summary(base_model)
 
 att_emp_train <- att_emp_train[, !names(att_emp_train) %in% c("GenderMale", "Education_LevelMaster", "DaysBeforeDeparture")]
 
-model_1 <- glm(riskLevel ~ ., att_emp_train, family = "binomial")
+att_emp_test <- att_emp_test[,
+                !names(att_emp_test) %in% c(
+                "GenderMale", "Education_LevelMaster", "DaysBeforeDeparture"
+                )
+            ]
 
+test_data_x <- subset(att_emp_test, select = -c(riskLevel))
+test_data_y <- att_emp_test$riskLevel
+
+model_1 <- glm(riskLevel ~ ., att_emp_train, family = "binomial")
 summary(model_1)
 
 
@@ -158,6 +168,14 @@ tab_train_class <- table(
 
 tab_train_class
 
+y_hat_test_pred_glm <- predict(model_1, test_data_x)
+y_hat_test_glm <- as.numeric(y_hat_test_pred_glm > 0.5)
+tab_test_class <- table(
+    y_hat_test_glm,
+    test_data_y,
+    dnn = c("Predicted", "Actual")
+)
+tab_test_class
 train_data_x <- subset(att_emp_train, select = -c(riskLevel))
 train_data_y <- att_emp_train$riskLevel
 train_data_x_matrix <- as.matrix(train_data_x)
@@ -173,6 +191,9 @@ model_xg <- xgboost(
     nrounds = 30,
     objective = "binary:logistic"
 )
+
+importance_matrix <- xgb.importance(model = model_xg)
+importance_matrix
 y_hat_xg_train <- predict(model_xg, train_data_x_matrix)
 y_hat_xg_train <- as.numeric(y_hat_xg_train > 0.5)
 y_hat_xg_train
@@ -183,15 +204,6 @@ tab_train_class_xg <- table(
 )
 tab_train_class_xg
 
-
-att_emp_test <- att_emp_test[,
-                !names(att_emp_test) %in% c(
-                "GenderMale", "Education_LevelMaster", "DaysBeforeDeparture"
-                )
-            ]
-
-test_data_x <- subset(att_emp_test, select = -c(riskLevel))
-test_data_y <- att_emp_test$riskLevel
 test_data_x_matrix <- as.matrix(test_data_x)
 
 y_hat_xg_test <- predict(model_xg, test_data_x_matrix)
@@ -202,3 +214,5 @@ tab_test_class_xg <- table(
     dnn = c("Predicted", "Actual")
 )
 tab_test_class_xg
+
+summary(model_xg)
