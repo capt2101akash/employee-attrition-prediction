@@ -3,7 +3,7 @@ library(dplyr)
 library(pastecs)
 library(xgboost)
 library(lubridate)
-
+library(caret)
 raw_df <- read.csv("dataset/train_data.csv")
 head(raw_df)
 
@@ -236,6 +236,7 @@ tab_train_class <- table(
 )
 
 tab_train_class
+confusionMatrix(tab_train_class)
 
 y_hat_test_pred_glm <- predict(model_1, test_data_x)
 y_hat_test_glm <- as.numeric(y_hat_test_pred_glm > 0.5)
@@ -244,8 +245,9 @@ tab_test_class <- table(
     test_data_y,
     dnn = c("Predicted", "Actual")
 )
-tab_test_class
 
+tab_test_class
+confusionMatrix(tab_test_class)
 ## Create dataset for xgboost ##
 train_data_x <- subset(att_emp_train, select = -c(riskLevel))
 train_data_y <- att_emp_train$riskLevel
@@ -256,11 +258,11 @@ train_data_x_matrix <- as.matrix(train_data_x)
 model_xg <- xgboost(
     data = train_data_x_matrix,
     label = train_data_y,
-    max.depth = 9,
+    max.depth = 20,
     gamma = 2,
     eta = 1,
     nthread = 2,
-    nrounds = 12,
+    nrounds = 13,
     objective = "binary:logistic"
 )
 
@@ -273,7 +275,9 @@ tab_train_class_xg <- table(
     att_emp_train$riskLevel,
     dnn = c("Predicted", "Actual")
 )
+
 tab_train_class_xg
+confusionMatrix(tab_train_class_xg)
 
 test_data_x_matrix <- as.matrix(test_data_x)
 
@@ -284,8 +288,9 @@ tab_test_class_xg <- table(
     att_emp_test$riskLevel,
     dnn = c("Predicted", "Actual")
 )
-tab_test_class_xg
 
+tab_test_class_xg
+confusionMatrix(tab_test_class_xg)
 ######## XGB Feature selected ##########
 
 new_features <- c(
@@ -307,5 +312,78 @@ new_feature_att_emp_x <- new_feature_att_emp[, !names(new_feature_att_emp) %in% 
 
 new_feature_att_emp_x_mat <- as.matrix(new_feature_att_emp_x)
 new_feature_att_emp_y_mat <- as.matrix(new_feature_att_emp_y)
-cv <- xgb.cv(data = new_feature_att_emp_x_mat, label = new_feature_att_emp_y, nrounds = 3, nthread = 2, nfold = 5, metrics = list("rmse","auc"),
-                  max_depth = 3, eta = 1, objective = "binary:logistic")
+xgb_cv <- xgb.cv(
+    data = new_feature_att_emp_x_mat, 
+    label = new_feature_att_emp_y, 
+    nrounds = 100, 
+    nthread = 2, 
+    nfold = 10, 
+    metrics = list("rmse","auc"),
+    max_depth = 20, 
+    eta = 1, 
+    objective = "binary:logistic",
+    prediction = TRUE
+)
+
+xgb_cv_pred_y <- xgb_cv$pred
+y_hat_xg_cv <- as.numeric(xgb_cv_pred_y > 0.5)
+tab_class_xg_cv <- table(
+    y_hat_xg_cv,
+    new_feature_att_emp_y,
+    dnn = c("Predicted", "Actual")
+)
+
+confusionMatrix(tab_class_xg_cv)
+
+class0_err <- 1:999
+class1_err <- 1:999
+overall_err <- 1:999
+
+class0 <- which(new_feature_att_emp_y == 0) 
+class1 <- which(new_feature_att_emp_y == 1)
+for(i in 1:999) {
+    val <- i/1000
+    yhat <- ifelse(xgb_cv_pred_y > val, 1, 0)
+    overall_err[i] <- mean(new_feature_att_emp_y 
+                            != yhat)
+    class1_err[i] <- mean(new_feature_att_emp_y[class1] 
+                            != yhat[class0])
+    class0_err[i] <- mean(new_feature_att_emp_y[class0] 
+                            != yhat[class1])
+    
+    print(class1_err[i], class0_err[i])
+}
+
+xrange <- 1:999/1000
+class0_err[]
+plot(xrange, class0_err, xlab = "Cutoff Value", 
+     ylab = "Error Rate", col = "Red", type = "b")
+points(xrange, class1_err, xlab = "Cutoff Value", 
+       col = "Blue")
+
+
+xgb_cv_pred_y <- xgb_cv$pred
+y_hat_xg_cv <- as.numeric(xgb_cv_pred_y > 0.62)
+tab_class_xg_cv <- table(
+    y_hat_xg_cv,
+    new_feature_att_emp_y,
+    dnn = c("Predicted", "Actual")
+)
+
+confusionMatrix(tab_class_xg_cv)
+###################################################
+train.control <- trainControl(method = "LOOCV")
+new_feature_att_emp$riskLevel <- as.factor(new_feature_att_emp$riskLevel)
+cv_glm <- train(riskLevel ~ ., new_feature_att_emp, method = "glm",
+    trControl = train.control)
+
+summary(cv_glm)
+
+tab_class_glm_cv <- table(
+    cv_glm$pred$pred,
+    new_feature_att_emp$riskLevel,
+    dnn = c("Predicted", "Actual")
+)
+confusionMatrix(tab_class_glm_cv)
+
+
