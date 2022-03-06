@@ -4,6 +4,13 @@ library(pastecs)
 library(xgboost)
 library(lubridate)
 library(caret)
+library(ROSE)
+# install.packages("DMwR")
+library(smotefamily)
+# library(DMwR)
+library(caret)
+library(MASS)
+
 raw_df <- read.csv("dataset/train_data.csv")
 head(raw_df)
 
@@ -12,19 +19,19 @@ is.null(raw_df)
 str(raw_df)
 
 gender_count <- raw_df %>% 
-                group_by(Gender) %>%
-                summarise(count = n())
+  group_by(Gender) %>%
+  summarise(count = n())
 
 city_count <- raw_df %>%
-              group_by(City) %>%
-              summarise(count = n())
+  group_by(City) %>%
+  summarise(count = n())
 
 ############ EDA Part 1 #########################
 ggplot(gender_count, aes(x = Gender, y = count)) +
-geom_bar(stat = "identity", fill = "Blue")
+  geom_bar(stat = "identity", fill = "Blue")
 
 ggplot(city_count, aes(x = City, y = count)) +
-geom_bar(stat = "identity", fill = "green")
+  geom_bar(stat = "identity", fill = "green")
 
 
 att_emp_id <- raw_df[raw_df$LastWorkingDate != "", 2]
@@ -32,12 +39,177 @@ att_emp_id <- raw_df[raw_df$LastWorkingDate != "", 2]
 
 
 raw_df %>%
-    mutate(
-        label = if_else(Emp_ID %in% c(att_emp_id), 1, 0),
-        color = if_else(Emp_ID %in% c(att_emp_id), "red", "yellow")
-    ) %>%
-    ggplot(aes(x = Age, y = Salary, colour = color)) +
-    geom_point()
+  mutate(
+    label = if_else(Emp_ID %in% c(att_emp_id), 1, 0),
+    color = if_else(Emp_ID %in% c(att_emp_id), "red", "yellow")
+  ) %>%
+  ggplot(aes(x = Age, y = Salary, colour = color)) +
+  geom_point()
+
+######### Data engineering ##############
+
+att_emp <- raw_df %>%
+  group_by(Emp_ID) %>%
+  mutate(
+    DaysBeforeDeparture = as.integer(
+      as.Date(max(LastWorkingDate)) - as.Date(MMM.YY)
+    )
+  ) %>%
+  mutate(
+    differenceInSalary = Salary - lag(Salary)
+  ) %>%
+  mutate(
+    days_worked = as.integer(
+      as.Date(MMM.YY) - as.Date(Dateofjoining)
+    )
+  ) %>%
+  mutate(
+    is_promoted = ifelse(
+      Designation - lag(Designation) == 0,
+      0,
+      1
+    )
+  )
+
+# Remove NA from lag function with 0
+att_emp$differenceInSalary[is.na(att_emp$differenceInSalary)] <- 0
+att_emp$is_promoted[is.na(att_emp$is_promoted)] <- 0
+
+att_emp1 = att_emp
+
+#Factorize the data 
+category_cars <- c("Gender", "Education_Level", "is_promoted",'LastWorkingDate')
+att_emp1$Gender <- as.factor(att_emp1$Gender)
+att_emp1$Education_Level <- as.factor(att_emp1$Education_Level)
+att_emp1$is_promoted <- as.factor(att_emp1$is_promoted)
+att_emp1$LastWorkingDate<-as.Date(att_emp1$LastWorkingDate)
+empid = att_emp1$Emp_ID
+str(att_emp1)
+drop_cols <- c(
+  "MMM.YY","Dateofjoining","City","Emp_ID"
+)
+new_att_emp1 <- att_emp1[, !names(att_emp1) %in% drop_cols]
+gender_dummy <- model.matrix(~Gender - 1, data = new_att_emp1)
+education_dummy <- model.matrix(~Education_Level - 1, data = new_att_emp1)
+is_promoted_dummy <- model.matrix(~is_promoted - 1, data = new_att_emp1)
+
+new_att_emp1 <- cbind(empid,new_att_emp1, gender_dummy,education_dummy,is_promoted_dummy)
+
+new_att_emp1 <- new_att_emp1[, !names(new_att_emp1) %in% c("Gender", "Education_Level", "is_promoted")]
+head(new_att_emp1)
+str(new_att_emp1)
+
+drop2 <-c('is_promoted0','Education_LevelMaster','GenderMale')
+new_att_emp1 <- new_att_emp1[, !names(new_att_emp1) %in% drop2]
+str(new_att_emp1)
+
+#Finding out the employees that have left based on lastworkingday
+new_att_emp1$LastWorkingDate <-as.character(new_att_emp1$LastWorkingDate)
+new_att_emp1$LastWorkingDate[is.na(new_att_emp1$LastWorkingDate)] <- 0
+new_att_emp1$LastWorkingDate[!new_att_emp1$LastWorkingDate=='0']<-1
+new_att_emp1$LastWorkingDate = as.numeric(new_att_emp1$LastWorkingDate)
+new_att_emp1$DaysBeforeDeparture[is.na(new_att_emp1$DaysBeforeDeparture)] <- 0
+
+#Grouping employee information based on their ID
+#(Since there are multiple entries of a particular employee)
+grouped_data = new_att_emp1 %>%
+  group_by(empid)
+grouped_data_final = grouped_data %>% summarize(
+  Salary = mean(Salary),
+  Age = max(Age),
+  JoiningDesignation = min(Joining.Designation),
+  Designation = max(Designation),
+  BusinessValue = mean(Total.Business.Value),
+  QuaterlyRating = max(Quarterly.Rating),
+  DiffInSalary = max(differenceInSalary),
+  DaysWorked = max(days_worked),
+  GenderFemale = max(GenderFemale),
+  Education_LevelBachelor = max(Education_LevelBachelor),
+  Education_LevelCollege = max(Education_LevelCollege),
+  Ispromoted = max(is_promoted1),
+  LWD = sum(LastWorkingDate),
+  
+  
+)
+grouped_data_final
+
+#Generating test and train data 
+set.seed(33)
+index = createDataPartition(grouped_data_final$LWD,p=0.7,list=FALSE)
+train_data = grouped_data_final[index,]
+train_data = train_data[,-1]
+test_data = grouped_data_final[-index,]
+test_data = test_data[,-1]
+table(grouped_data_final$LWD)
+
+
+############ Logistic Regression without oversampling ############3
+log_base_train = glm(LWD~.,train_data,family='binomial')
+summary(log_base_train)
+length(log_base_train$fitted.values)
+nrow(train_data)
+y_hat_train_class =ifelse(log_base_train$fitted.values < 0.5, 0, 1)
+tab_train_class = table(
+  y_hat_train_class,
+  train_data$LWD,
+  dnn = c("Predicted", "Actual")
+)
+#Confusion Matrix for train data
+tab_train_class
+confusionMatrix(tab_train_class)
+
+y_hat_test_class = predict(log_base_train,test_data)
+y_hat_test_glm <- as.numeric(y_hat_test_class > 0.5)
+tab_test_class = table(y_hat_test_glm,test_data$LWD,dnn=c("Predicted","Actual"))
+#Confusion Matrix for test data
+confusionMatrix(tab_test_class)
+
+
+
+######### Oversampling the data ##########
+
+smote = SMOTE(train_data[,-13],train_data$LWD)
+oversampled_train = smote$data
+names(oversampled_train)[13] = "LWD"
+
+######### Logistic Regression without oversampling ##########
+
+oversampled_train$LWD = as.numeric(oversampled_train$LWD)
+log_oversampled = glm(LWD~.,oversampled_train,family = 'binomial')
+summary(log_oversampled)
+table(oversampled_train$LWD)
+
+y_hat_over_train_class =ifelse(log_oversampled$fitted.values < 0.5, 0, 1)
+tab_over_train_class = table(
+  y_hat_over_train_class,
+  oversampled_train$LWD,
+  dnn = c("Predicted", "Actual")
+)
+#Confusion Matrix for train data
+tab_over_train_class
+confusionMatrix(tab_over_train_class)
+
+y_hat_over_test_class = predict(log_oversampled,test_data)
+y_hat_over_test_glm <- as.numeric(y_hat_over_test_class > 0.5)
+tab_over_test_class = table(y_hat_over_test_glm,test_data$LWD,dnn=c("Predicted","Actual"))
+#Confusion Matrix for test data
+confusionMatrix(tab_over_test_class)
+
+
+######### Feature selection ##########
+
+control = rfeControl(rfFuncs,"repeatedcv",2,5)
+x_train = train_data[,-13]
+y_train = train_data[,13]
+x_test = test_data[,-13]
+y_test = test_data[,13]
+nrow(y_train)
+stepAIC(log_base_train,direction = "backward")
+fit2 = glm(LWD~1.,train_data,family='binomial')
+stepAIC(fit2,direction='forward',scope=list(upper=log_base_train,lower=fit2))
+stepAIC(fit2,direction='both',scope=list(upper=log_base_train,lower=fit2))
+
+
 ######### Extract left employees #########
 att_emp <- raw_df %>%
             filter(Emp_ID %in% c(att_emp_id))
@@ -350,8 +522,6 @@ for(i in 1:999) {
                             != yhat[class0])
     class0_err[i] <- mean(new_feature_att_emp_y[class0] 
                             != yhat[class1])
-    
-    print(class1_err[i], class0_err[i])
 }
 
 xrange <- 1:999/1000
@@ -386,4 +556,8 @@ tab_class_glm_cv <- table(
 )
 confusionMatrix(tab_class_glm_cv)
 
+# XG Boost with cross validation tured out to be the best model for us
+# with sesitivity as 77.23% and specificity at 78.5%. These are the
+# parameters that we are trying to maximize as we want to reduce 
+# class 1 and class 2 errors. 
 
